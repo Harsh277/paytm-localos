@@ -1,0 +1,19 @@
+      <header className="border-b border-white/10 bg-[#0d1f35] px-6 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link to="/" className="text-[#00BAF2] hover:text-white"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></Link>
+            <h1 className="text-xl font-semibold">FSE Dashboard</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-gray-400 text-sm">Vikram Singh</span>
+            <span className="text-gray-500">|</span>
+            <span className="text-gray-400 text-sm">Mansarovar Zone</span>
+            <span className="px-3 py-1 bg-[#00BAF2]/20 text-[#00BAF2] text-sm font-medium rounded-full border border-[#00BAF2]/30">Live Demo</span>
+          </div>
+        </div>
+      </header>
+      <nav className="flex gap-1 px-6 py-2 border-b border-white/10 bg-[#0d1f35]/50">
+        {['My Portfolio', "Today's Plan"].map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab.toLowerCase().replace(' ', '').replace("'",''))} className={`px-4 py-2 text-sm font-medium rounded-lg ${activeTab === tab.toLowerCase().replace(' ','').replace("'",'') ? 'bg-[#00BAF2]/20 text-[#00BAF2]' : 'text-gray-400 hover:text-white'}`}>{tab}</button>
+        ))}
+      </nav>

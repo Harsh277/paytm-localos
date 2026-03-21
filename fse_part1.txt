@@ -1,0 +1,125 @@
+import { useState, useMemo, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { fseData } from '../data/fseData.js'
+import { sendMessage } from '../services/geminiService.js'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+
+const ACCENT = '#00BAF2'
+
+const createIcon = (color) => L.divIcon({
+  className: 'custom-marker',
+  html: `<div style="background:${color};width:24px;height:24px;border-radius:50%;border:3px solid #0a1628;display:flex;align-items:center;justify-content:center;color:#0a1628;font-size:10px;font-weight:bold;">•</div>`,
+  iconSize: [24, 24],
+  iconAnchor: [12, 12]
+})
+
+const greenIcon = createIcon('#22c55e')
+const amberIcon = createIcon('#f59e0b')
+const redIcon = createIcon('#ef4444')
+
+function FSE() {
+  const [activeTab, setActiveTab] = useState('portfolio')
+  const [filters, setFilters] = useState({
+    health: 'All',
+    recommendedAction: 'All',
+    lastTransaction: 'All',
+    creditStatus: 'All'
+  })
+  const [expandedRow, setExpandedRow] = useState(null)
+  const [selectedMerchant, setSelectedMerchant] = useState(null)
+  const [chatInput, setChatInput] = useState('')
+  const [chatMessages, setChatMessages] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+
+  const filteredData = useMemo(() => {
+    return fseData.filter(m => {
+      if (filters.health !== 'All' && m.health !== filters.health.toUpperCase()) return false
+      if (filters.recommendedAction !== 'All' && m.recommendedAction !== filters.recommendedAction) return false
+      if (filters.lastTransaction === 'Today' && m.lastTransactionDays > 1) return false
+      if (filters.lastTransaction === 'This Week' && m.lastTransactionDays > 7) return false
+      if (filters.lastTransaction === '7+ Days Ago' && m.lastTransactionDays < 7) return false
+      if (filters.creditStatus !== 'All' && m.creditStatus !== filters.creditStatus.toLowerCase()) return false
+      return true
+    })
+  }, [filters])
+
+  const stats = useMemo(() => {
+    const total = fseData.length
+    const activeThisWeek = fseData.filter(m => m.lastTransactionDays <= 7).length
+    const atRisk = fseData.filter(m => m.lastTransactionDays >= 7 || m.health === 'RED').length
+    const creditUpsell = fseData.filter(m => m.creditStatus === 'eligible' && !m.hasReceivedCreditOffer).length
+    const totalGMV = fseData.reduce((sum, m) => sum + m.gmvCurrent, 0)
+    return { total, activeThisWeek, atRisk, creditUpsell, totalGMV }
+  }, [])
+
+  const p1Merchants = useMemo(() => {
+    return fseData.filter(m => m.priority === 'P1').sort((a, b) => {
+      if (a.health === 'RED' && b.health !== 'RED') return -1
+      if (b.health === 'RED' && a.health !== 'RED') return 1
+      return b.lastTransactionDays - a.lastTransactionDays
+    }).slice(0, 5)
+  }, [])
+
+  const haversineDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2)
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+  }
+
+  const p1WithDistance = useMemo(() => {
+    const baseLat = 26.8635, baseLng = 75.7570
+    return p1Merchants.map(m => ({ ...m, distance: haversineDistance(baseLat, baseLng, m.lat, m.lng).toFixed(1) }))
+  }, [p1Merchants])
+
+  const totalRouteDistance = useMemo(() => {
+    if (p1WithDistance.length === 0) return 0
+    let total = p1WithDistance[0].distance
+    for (let i = 1; i < p1WithDistance.length; i++) total += haversineDistance(p1WithDistance[i-1].lat, p1WithDistance[i-1].lng, p1WithDistance[i].lat, p1WithDistance[i].lng)
+    return total.toFixed(1)
+  }, [p1WithDistance])
+
+  const routePositions = p1Merchants.map(m => [m.lat, m.lng])
+
+  const insights = useMemo(() => {
+    const noTrans7 = fseData.filter(m => m.lastTransactionDays >= 7).length
+    const noCredit = fseData.filter(m => m.creditStatus === 'eligible' && !m.hasReceivedCreditOffer).length
+    const gmvDown = fseData.filter(m => m.gmvChangePct < 0).length
+    return [
+      { emoji: '🔴', text: noTrans7 + " merchants haven't transacted in 7+ days" },
+      { emoji: '💰', text: noCredit + " credit-eligible merchants never offered a loan" },
+      { emoji: '📉', text: gmvDown + " merchants showing GMV decline this week" }
+    ]
+  }, [])
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || isLoading) return
+    const userMessage = chatInput
+    setChatInput('')
+    setIsLoading(true)
+    setChatMessages(prev => [...prev, { role: 'user', text: userMessage }])
+    try {
+      const response = await sendMessage(userMessage, chatMessages, fseData, 'You are a Paytm FSE Assistant for Vikram Singh. Portfolio: ' + stats.total + ' merchants, ' + stats.atRisk + ' at risk.')
+      setChatMessages(prev => [...prev, { role: 'assistant', text: response }])
+    } catch (error) {
+      setChatMessages(prev => [...prev, { role: 'assistant', text: 'Error. Please try again.' }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const gmvAtRisk = fseData.filter(m => m.health === 'RED').reduce((sum, m) => sum + m.gmvCurrent, 0)
+  const creditToDeploy = fseData.filter(m => m.creditStatus === 'eligible' && !m.hasReceivedCreditOffer).length * 50000
+
+  const getIcon = (health) => health === 'RED' ? redIcon : health === 'AMBER' ? amberIcon : greenIcon
+  const healthDot = (h) => <span className={`inline-block w-2.5 h-2.5 rounded-full ${h === 'RED' ? 'bg-red-500' : h === 'AMBER' ? 'bg-amber-500' : 'bg-green-500'}`} />
+  const creditBadge = (s) => <span className={`px-2 py-0.5 text-xs rounded-full border ${s === 'eligible' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : s === 'active' ? 'bg-green-500/20 text-green-400 border-green-500/30' : s === 'overdue' ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>{s}</span>
+  const priorityBadge = (p) => <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${p === 'P1' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : p === 'P2' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-green-500/20 text-green-400 border border-green-500/30'}`}>{p}</span>
+
+  const MapUpdater = ({ center }) => { const map = useMap(); useEffect(() => { if (center) map.flyTo(center, 15) }, [center, map]); return null }
+
+  return (
+    <div className="min-h-screen bg-[#0a1628] text-white">
