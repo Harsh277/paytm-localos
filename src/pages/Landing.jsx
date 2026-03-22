@@ -35,7 +35,9 @@ function Landing() {
           </h1>
           
           <p className="text-xl md:text-2xl text-gray-400 mb-16 max-w-2xl mx-auto leading-relaxed">
-            47% of kirana owners don't know if they're profitable. We fix that.
+          12 million kirana stores.<br />
+          Zero financial visibility.<br />
+          One platform to change that.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-6 justify-center items-stretch sm:items-center">
